@@ -391,6 +391,12 @@
             background: rgba(255, 255, 255, 0.9);
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.31.0/dist/umd/supabase.min.js"></script>
+    <script>
+        const supabaseUrl = 'https://lidqwdfyjhkofqwsmnaj.supabase.co'
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZHF3ZGZ5amhrb2Zxd3NtbmFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU4MzAxNjcsImV4cCI6MjA3MTQwNjE2N30.ud8FtsSiX2HwdhLoZmsndL7nmq2UbmTeOle6AwLql7I'
+        const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey)
+    </script>
 </head>
 <body>
     <button class="admin-btn" onclick="toggleAdminPanel()">🔧 Admin Panel</button>
@@ -535,9 +541,6 @@
     </div>
 
     <script>
-        // Sample database storage (in production, use a real database)
-        let ordersDatabase = JSON.parse(localStorage.getItem('deskTeaOrders') || '[]');
-
         // Tea selection functionality
         const teaOptions = document.querySelectorAll('.tea-option');
         const selectedTeaInput = document.getElementById('selectedTea');
@@ -594,6 +597,47 @@
             }
         });
 
+        // Form validation function
+        function validateForm(formData) {
+            const errors = [];
+            
+            // Validate Name (at least 3 characters, letters only)
+            const name = formData.get('customerName');
+            if (!name.match(/^[a-zA-Z\s]{3,}$/)) {
+                errors.push('Name should be at least 3 characters and contain only letters');
+            }
+
+            // Validate Email
+            const email = formData.get('email');
+            if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                errors.push('Please enter a valid email address');
+            }
+
+            // Validate Phone (10 digits)
+            const phone = formData.get('phone');
+            if (!phone.match(/^[0-9]{10}$/)) {
+                errors.push('Phone number should be 10 digits');
+            }
+
+            // Validate Tea Selection
+            if (!formData.get('selectedTea')) {
+                errors.push('Please select a tea variety');
+            }
+
+            // Validate Quantity
+            if (!formData.get('quantity')) {
+                errors.push('Please select quantity');
+            }
+
+            // Validate Address
+            const address = formData.get('address');
+            if (!address || address.length < 5) {
+                errors.push('Please enter a valid address (min 5 characters)');
+            }
+
+            return errors;
+        }
+
         // Form submission
         const form = document.getElementById('teaBookingForm');
         const submitBtn = document.getElementById('submitBtn');
@@ -601,7 +645,6 @@
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            // Validate required fields
             if (!selectedTeaInput.value) {
                 showMessage('Please select a tea variety.', 'error');
                 return;
@@ -623,18 +666,23 @@
                     selectedTea: formData.get('selectedTea'),
                     quantity: formData.get('quantity'),
                     address: formData.get('address'),
-                    latitude: formData.get('latitude'),
-                    longitude: formData.get('longitude'),
-                    deliveryTime: formData.get('deliveryTime'),
-                    specialInstructions: formData.get('specialInstructions'),
+                    latitude: formData.get('latitude') || '',
+                    longitude: formData.get('longitude') || '',
+                    deliveryTime: formData.get('deliveryTime') || '',
+                    specialInstructions: formData.get('specialInstructions') || '',
                     orderStatus: 'Pending'
                 };
 
-                // Store in local database
-                ordersDatabase.push(orderData);
-                localStorage.setItem('deskTeaOrders', JSON.stringify(ordersDatabase));
+                console.log('Submitting order:', orderData);
 
-                showMessage('🎉 Your tea order has been booked successfully! We\'ll contact you soon.', 'success');
+                const { data, error } = await supabaseClient
+                    .from('orders')
+                    .insert([orderData])
+                    .select();
+
+                if (error) throw error;
+
+                showMessage('🎉 Order booked successfully!', 'success');
                 form.reset();
                 selectedTeaInput.value = '';
                 teaOptions.forEach(opt => opt.classList.remove('selected'));
@@ -642,8 +690,8 @@
                 getLocationBtn.innerHTML = '📍 Get My Location';
 
             } catch (error) {
-                console.error('Error submitting order:', error);
-                showMessage('There was an error booking your order. Please try again.', 'error');
+                console.error('Error:', error);
+                showMessage('Booking failed. Please try again.', 'error');
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '🚚 Book My Tea Delivery';
@@ -710,16 +758,38 @@
             showCustomerForm();
         }
 
-        function loadOrders() {
+        // Replace the existing loadOrders function with this:
+        async function loadOrders() {
             const tableBody = document.getElementById('ordersTableBody');
-            const orders = JSON.parse(localStorage.getItem('deskTeaOrders') || '[]');
-            
-            tableBody.innerHTML = '';
-            
-            orders.reverse().forEach(order => {
-                const row = createOrderRow(order);
-                tableBody.appendChild(row);
-            });
+            tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">Loading orders...</td></tr>';
+
+            try {
+                const { data: orders, error } = await supabaseClient
+                    .from('orders')
+                    .select('*')
+                    .order('timestamp', { ascending: false });
+
+                if (error) {
+                    console.error('Error fetching orders:', error);
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Error loading orders</td></tr>';
+                    return;
+                }
+
+                if (!orders || orders.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No orders found</td></tr>';
+                    return;
+                }
+
+                tableBody.innerHTML = '';
+                orders.forEach(order => {
+                    const row = createOrderRow(order);
+                    tableBody.appendChild(row);
+                });
+
+            } catch (error) {
+                console.error('Error:', error);
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: red;">Failed to load orders</td></tr>';
+            }
         }
 
         function createOrderRow(order) {
@@ -782,14 +852,21 @@
             return row;
         }
 
-        function updateOrderStatus(orderId, newStatus) {
-            const orders = JSON.parse(localStorage.getItem('deskTeaOrders') || '[]');
-            const orderIndex = orders.findIndex(order => order.id === orderId);
-            
-            if (orderIndex !== -1) {
-                orders[orderIndex].orderStatus = newStatus;
-                localStorage.setItem('deskTeaOrders', JSON.stringify(orders));
-                loadOrders(); // Reload the table
+        // Replace the existing updateOrderStatus function with this:
+        async function updateOrderStatus(orderId, newStatus) {
+            try {
+                const { error } = await supabaseClient
+                    .from('orders')
+                    .update({ orderStatus: newStatus })
+                    .eq('id', orderId);
+
+                if (error) throw error;
+                
+                showMessage(`Order status updated to ${newStatus}`, 'success');
+                loadOrders();
+            } catch (error) {
+                console.error('Update error:', error);
+                showMessage('Failed to update status', 'error');
             }
         }
 
@@ -802,12 +879,23 @@
             window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
         }
 
-        function deleteOrder(orderId) {
+        // Replace the existing deleteOrder function with this:
+        async function deleteOrder(orderId) {
             if (confirm('Are you sure you want to delete this order?')) {
-                let orders = JSON.parse(localStorage.getItem('deskTeaOrders') || '[]');
-                orders = orders.filter(order => order.id !== orderId);
-                localStorage.setItem('deskTeaOrders', JSON.stringify(orders));
-                loadOrders();
+                try {
+                    const { error } = await supabaseClient
+                        .from('orders')
+                        .delete()
+                        .eq('id', orderId);
+
+                    if (error) throw error;
+
+                    showMessage('Order deleted successfully', 'success');
+                    loadOrders();
+                } catch (error) {
+                    console.error('Delete error:', error);
+                    showMessage('Failed to delete order', 'error');
+                }
             }
         }
 
